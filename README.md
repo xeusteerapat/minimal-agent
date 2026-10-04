@@ -13,6 +13,12 @@ cp .env.example .env   # then edit .env
 pnpm start
 ```
 
+### Fancy terminal UI
+
+`pnpm start:tui` runs `src/tui.tsx`, the same `ToolLoopAgent` with an [Ink](https://github.com/vadimdemedes/ink) interface:
+a header, a bordered input box, a spinner while the model thinks, live tool-call status (`…` / `✓` / `✗`),
+and replies rendered as Markdown with syntax-highlighted code blocks (`marked` + `marked-terminal`).
+
 ## Choosing a model
 
 | `PROVIDER`         | Needs               | Default `MODEL`     |

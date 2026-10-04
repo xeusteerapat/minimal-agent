@@ -6,6 +6,7 @@
   "scripts": {
     "start": "tsx --env-file-if-exists=.env src/index.ts",
     "start:manual": "tsx --env-file-if-exists=.env src/manual.ts",
+    "start:tui": "tsx --env-file-if-exists=.env src/tui.tsx",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -13,10 +14,17 @@
     "@ai-sdk/openai": "^4.0.83",
     "@ai-sdk/openai-compatible": "^3.0.62",
     "ai": "^7.0.127",
+    "ink": "^7.1.1",
+    "ink-text-input": "^6.0.0",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0",
+    "react": "^19.3.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@types/marked-terminal": "^6.1.1",
     "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
