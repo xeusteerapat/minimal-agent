@@ -11,6 +11,7 @@ const DEFAULT_MODELS = {
 	openai: 'gpt-5.6',
 	anthropic: 'claude-sonnet-5-5',
 	ollama: 'qwen3.5:9b',
+	openrouter: 'nvidia/nemotron-3.5-lightning:free',
 } as const;
 
 type Provider = keyof typeof DEFAULT_MODELS;
@@ -46,6 +47,15 @@ export function createModel(): { model: LanguageModel; label: string } {
 				model: createAnthropic({ apiKey: requireEnv('ANTHROPIC_API_KEY') })(
 					modelId,
 				),
+				label,
+			};
+		case 'openrouter':
+			return {
+				model: createOpenAICompatible({
+					name: 'openrouter',
+					baseURL: 'https://openrouter.ai/api/v1',
+					apiKey: requireEnv('OPENROUTER_API_KEY'),
+				})(modelId),
 				label,
 			};
 		case 'ollama':

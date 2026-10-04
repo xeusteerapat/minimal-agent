@@ -590,3 +590,39 @@ Ollama จึงตั้งค่าเริ่มต้นไว้ต่ำ 
 ควรตั้งเท่าไหร่? เลือกให้ **พอกับงาน** ไม่ใช่เต็มเพดาน Agent ที่อ่านไฟล์หลายไฟล์ 16K–32K มักพอ
 ถ้าตั้งสูงเกินหน่วยความจำ GPU ที่มี Ollama จะย้ายบางส่วนไปรันบน CPU ทำให้ช้าลงมาก
 (ดูคอลัมน์ `PROCESSOR` ใน `ollama ps` ถ้าไม่ใช่ `100% GPU` แปลว่าเริ่มล้นแล้ว)
+
+### 7. ใช้ API key ของ OpenRouter ได้หรือไม่?
+
+ได้ครับ ตั้ง `PROVIDER=openrouter` แล้วใส่ `OPENROUTER_API_KEY` ใน `.env` (รองรับแล้วใน [`src/model.ts`](../src/model.ts))
+
+OpenRouter มี endpoint ที่ใช้รูปแบบเดียวกับ OpenAI (`https://openrouter.ai/api/v1`)
+จึงใช้ `createOpenAICompatible` ที่ติดตั้งอยู่แล้ว (ตัวเดียวกับที่ใช้กับ Ollama) ได้เลย ไม่ต้องลง package เพิ่ม
+ต่างจาก Ollama แค่ต้องส่ง `apiKey` ไปด้วย ซึ่งตัวเลือกนี้มีอยู่ใน type ของ `@ai-sdk/openai-compatible`
+(SDK จะใส่ header `Authorization: Bearer <apiKey>` ให้เอง)
+
+```ts
+case 'openrouter':
+	return {
+		model: createOpenAICompatible({
+			name: 'openrouter',
+			baseURL: 'https://openrouter.ai/api/v1',
+			apiKey: requireEnv('OPENROUTER_API_KEY'),
+		})(modelId),
+		label,
+	};
+```
+
+ถ้าไม่ตั้ง `MODEL` จะใช้ค่าเริ่มต้น `anthropic/claude-sonnet-5.5` ตั้งค่าใน `.env` แบบนี้:
+
+```bash
+PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-...
+# MODEL=<ผู้ให้บริการ>/<ชื่อโมเดล>   (ไม่บังคับ)
+```
+
+ข้อควรรู้:
+
+- **ชื่อโมเดลมีชื่อผู้ให้บริการนำหน้า** และอาจต่างจาก ID ของผู้ให้บริการเอง เช่น OpenRouter ใช้ `anthropic/claude-sonnet-5.5` (จุด) แต่ Anthropic ใช้ `claude-sonnet-5-5` (ขีด) ดู ID ได้จาก `https://openrouter.ai/api/v1/models`
+- **โมเดลต้องรองรับ tool calling** เพราะ Agent นี้ทำงานด้วยการเรียกเครื่องมือ โมเดลที่ไม่รองรับจะตอบได้แต่ใช้เครื่องมือไม่ได้
+- อีกทางเลือกคือ package `@openrouter/ai-sdk-provider` ที่ OpenRouter ทำเอง รองรับตัวเลือกเฉพาะของ OpenRouter ได้ครบกว่า
+  แต่ต้องลง dependency เพิ่ม (ยังไม่ได้ตรวจว่าเวอร์ชันไหนเข้ากับ `ai` v7) สำหรับใช้งานพื้นฐาน `createOpenAICompatible` ก็พอ

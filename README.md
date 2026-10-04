@@ -21,11 +21,12 @@ and replies rendered as Markdown with syntax-highlighted code blocks (`marked` +
 
 ## Choosing a model
 
-| `PROVIDER`         | Needs               | Default `MODEL`     |
-| ------------------ | ------------------- | ------------------- |
-| `ollama` (default) | Ollama running      | `qwen3.5:9b`        |
-| `openai`           | `OPENAI_API_KEY`    | `gpt-5.6`           |
-| `anthropic`        | `ANTHROPIC_API_KEY` | `claude-sonnet-5-5` |
+| `PROVIDER`         | Needs                | Default `MODEL`               |
+| ------------------ | -------------------- | ----------------------------- |
+| `ollama` (default) | Ollama running       | `qwen3.5:9b`                  |
+| `openai`           | `OPENAI_API_KEY`     | `gpt-5.6`                     |
+| `anthropic`        | `ANTHROPIC_API_KEY`  | `claude-sonnet-5-5`           |
+| `openrouter`       | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-5.5` |
 
 For Ollama, pull a model that supports tool calling first (`ollama pull qwen3.5:9b`).
 `OLLAMA_BASE_URL` can point at any OpenAI-compatible server (LM Studio, llama.cpp, vLLM).
