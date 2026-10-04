@@ -30,6 +30,20 @@ and replies rendered as Markdown with syntax-highlighted code blocks (`marked` +
 For Ollama, pull a model that supports tool calling first (`ollama pull qwen3.5:9b`).
 `OLLAMA_BASE_URL` can point at any OpenAI-compatible server (LM Studio, llama.cpp, vLLM).
 
+**Ollama context window:** Ollama runs models with a 4,096-token context by default, and its OpenAI-compatible
+API cannot change that per request. Tool results (file contents) and model reasoning fill it quickly; the model
+then gets cut off before answering, and every later turn fails the same way. Raise it on the Ollama side:
+
+```sh
+OLLAMA_CONTEXT_LENGTH=32768 ollama serve   # or set PARAMETER num_ctx in a Modelfile
+```
+
+`ollama ps` shows the context a loaded model is using. A larger context uses more memory.
+
+**Thinking is off for Ollama:** `src/model.ts` sends `reasoningEffort: 'none'` to Ollama. With thinking on,
+`qwen3.5:9b` sometimes ended a tool loop with its answer only in its reasoning and no reply (2 of 3 runs answered,
+versus 6 of 6 with thinking off). Remove the middleware in `src/model.ts` to turn thinking back on.
+
 Variables can also be passed inline: `PROVIDER=openai OPENAI_API_KEY=sk-... pnpm start`.
 
 ## Tools

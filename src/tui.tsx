@@ -30,7 +30,8 @@ type Entry =
 			input: unknown;
 			status: 'running' | 'done' | 'error';
 	  }
-	| { kind: 'error'; text: string };
+	| { kind: 'error'; text: string }
+	| { kind: 'warning'; text: string };
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -91,6 +92,8 @@ function EntryView({ entry }: { entry: Entry }) {
 		}
 		case 'error':
 			return <Text color='red'>Error: {entry.text}</Text>;
+		case 'warning':
+			return <Text color='yellow'>⚠ {entry.text}</Text>;
 	}
 }
 
@@ -142,6 +145,19 @@ function App() {
 				update();
 			}
 			messages.current.push(...(await result.responseMessages));
+
+			const finishReason = await result.finishReason;
+			if (finishReason === 'length') {
+				turn.push({
+					kind: 'warning',
+					text: 'The model hit its token limit before finishing its answer. With Ollama, the context window is probably too small (see README).',
+				});
+			} else if (!turn.some((e) => e.kind === 'assistant')) {
+				turn.push({
+					kind: 'warning',
+					text: `The model finished without a text reply (finish reason: ${finishReason}).`,
+				});
+			}
 		} catch (error) {
 			messages.current.pop();
 			turn.push({

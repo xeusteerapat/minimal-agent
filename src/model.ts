@@ -1,7 +1,11 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { LanguageModel } from 'ai';
+import {
+	defaultSettingsMiddleware,
+	wrapLanguageModel,
+	type LanguageModel,
+} from 'ai';
 
 const DEFAULT_MODELS = {
 	openai: 'gpt-5.6',
@@ -46,10 +50,19 @@ export function createModel(): { model: LanguageModel; label: string } {
 			};
 		case 'ollama':
 			return {
-				model: createOpenAICompatible({
-					name: 'ollama',
-					baseURL: process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1',
-				})(modelId),
+				// Thinking is disabled because small local models (e.g. qwen3.5:9b) sometimes
+				// end a tool loop with the answer only in their reasoning and no reply text.
+				model: wrapLanguageModel({
+					model: createOpenAICompatible({
+						name: 'ollama',
+						baseURL: process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1',
+					})(modelId),
+					middleware: defaultSettingsMiddleware({
+						settings: {
+							providerOptions: { ollama: { reasoningEffort: 'none' } },
+						},
+					}),
+				}),
 				label,
 			};
 	}
