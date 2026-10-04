@@ -302,6 +302,114 @@ for (let step = 1; step <= MAX_STEPS; step++) {
 แล้วส่งกลับเป็น `{ type: 'error-text', value: '...' }` แทนการทำให้โปรแกรมพัง
 โมเดลจะเห็น error นั้นและปรับตัวได้ เช่น บอกผู้ใช้ว่าอ่านไฟล์ไม่ได้
 
+#### Tool call เกิดขึ้นเมื่อไหร่?
+
+ใน `manual.ts` คำว่า "tool call" มี 2 จังหวะที่ต้องแยกให้ออก: **โมเดลขอเรียก** กับ **โค้ดของเรารันจริง**
+ซึ่งเกิดคนละเวลากัน:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant L as runAgent (manual.ts)
+    participant S as streamText (SDK)
+    participant M as LLM
+
+    L->>S: streamText({ messages, tools: toolDefinitions })
+    S->>M: system + messages + description/inputSchema ของทุกเครื่องมือ
+    M-->>S: stream ข้อความ (text-delta)
+    M-->>S: ขอเรียก readFile + input (JSON)
+    Note over S: ตรวจ input กับ inputSchema<br/>แล้วส่ง part "tool-call"
+    S-->>L: part tool-call → พิมพ์ [tool] readFile(...) (บรรทัด 71–75)
+    Note over S: ไม่มี execute → SDK ไม่รันอะไร<br/>จบ step (finish-step)
+    S-->>L: stream จบ
+    L->>L: บรรทัด 82: await result.toolCalls
+    L->>L: บรรทัด 85–94: runTool() ← รันจริงตรงนี้
+    L->>L: บรรทัด 96: push tool message
+    L->>S: รอบถัดไปของ for-loop (step ใหม่)
+```
+
+1. **ใครตัดสินใจว่าจะเรียกเครื่องมือ?** โมเดลล้วน ๆ โดยดูจากคำถาม, system prompt และ `description` ของเครื่องมือ
+   โค้ดของเราไม่ได้สั่ง เราแค่ "เสนอ" รายการเครื่องมือให้ผ่าน `tools: toolDefinitions`
+2. **part `tool-call` มาเมื่อไหร่?** หลังจากโมเดลส่ง input ของการเรียกนั้นมา **ครบทั้งก้อน** แล้วเท่านั้น
+   (SDK ต้องได้ JSON ครบจึงจะตรวจกับ `inputSchema` ได้) ถ้าโมเดลพิมพ์ข้อความก่อน เช่น "Let me check."
+   ข้อความจะมาก่อน ตามด้วย `tool-call` ทีละตัว
+3. **`[tool] readFile(...)` ที่เห็นบนจอ ไม่ได้แปลว่ารันแล้ว** บรรทัด 71–75 แค่แสดงว่าโมเดล *ขอ* เรียก
+   เพราะ `toolDefinitions` ไม่มี `execute` SDK จึงรันเองไม่ได้
+4. **รันจริงตอนไหน?** ที่บรรทัด 85–94 ซึ่งอยู่ **หลัง stream จบทั้ง step แล้ว** ไม่ใช่ทันทีที่ part `tool-call` มาถึง
+   ผลคือเรามีจังหวะคั่นกลางระหว่าง "โมเดลขอ" กับ "รันจริง" ซึ่งเป็นจุดที่ใส่การขออนุมัติจากผู้ใช้, log หรือกรองได้
+5. **`streamText` ทำแค่ 1 step** (ค่าเริ่มต้น) ดังนั้น `result.toolCalls` คือการเรียกของ step นี้เท่านั้น
+   (เอกสารใน type ของ SDK เขียนว่า "in all steps" แต่ในที่นี้มี step เดียว ทดสอบแล้ว `steps.length` เป็น 1)
+
+#### อธิบายบรรทัด 82–96 ทีละส่วน
+
+```ts
+const toolCalls = await result.toolCalls;          // 82
+if (toolCalls.length === 0) return;                // 83
+
+const results = await Promise.all(                 // 85
+	toolCalls.map(
+		async (call): Promise<ToolResultPart> => ({
+			type: 'tool-result',
+			toolCallId: call.toolCallId,               // 89
+			toolName: call.toolName,
+			output: await runTool(call, messages),     // 91
+		}),
+	),
+);                                                 // 94
+
+messages.push({ role: 'tool', content: results }); // 96
+```
+
+| บรรทัด | ทำอะไร | ทำไม |
+| --- | --- | --- |
+| 82 | รอรายการ tool call ทั้งหมดที่โมเดลขอใน step นี้ | เป็น Promise ที่ resolve เมื่อ stream จบ เราอ่าน stream จนจบแล้วที่บรรทัด 69 จึงได้ค่าทันที |
+| 83 | ไม่มี tool call → `return` จบ turn | แปลว่าโมเดลตอบเป็นข้อความแล้ว นี่คือ **เงื่อนไขหยุดหลัก** ของลูป (อีกอันคือ `MAX_STEPS`) |
+| 85–94 | รันทุกเครื่องมือ **พร้อมกัน** ด้วย `Promise.all` | โมเดลขอหลายเครื่องมือใน step เดียวได้ (parallel tool calls) เช่น อ่าน 2 ไฟล์ ไม่ต้องรอทีละตัว ผลลัพธ์เรียงตามลำดับใน `toolCalls` เสมอ ไม่ว่าตัวไหนเสร็จก่อน |
+| 89 | คัดลอก `toolCallId` ไปใส่ผลลัพธ์ | โมเดลใช้ id นี้จับคู่ "ผลลัพธ์นี้ตอบคำขอไหน" ถ้า id ไม่ตรง provider จะ error หรือโมเดลจะสับสน |
+| 91 | `runTool` รันเครื่องมือและแปลงผลเป็น `{ type: 'json' }` หรือ `{ type: 'error-text' }` | `runTool` จับ error เองทุกกรณี จึงไม่ throw และ `Promise.all` ไม่ล้ม error ของเครื่องมือกลายเป็นข้อมูลให้โมเดลอ่าน |
+| 96 | เพิ่ม message `role: 'tool'` ที่รวมผลลัพธ์ทั้งหมดไว้ใน message เดียว | รอบถัดไปของ `for` จะส่ง `messages` ทั้งหมด (รวมผลลัพธ์นี้) ให้โมเดลใน step ใหม่ |
+
+หลังจบ 1 step ที่มีการเรียกเครื่องมือ `messages` จะหน้าตาประมาณนี้:
+
+```ts
+[
+  { role: 'user', content: 'Read package.json ...' },
+  { role: 'assistant', content: [ /* text */, { type: 'tool-call', toolCallId: 'c1', toolName: 'readFile', input: {...} } ] }, // บรรทัด 80
+  { role: 'tool', content: [ { type: 'tool-result', toolCallId: 'c1', output: { type: 'json', value: {...} } } ] },          // บรรทัด 96
+]
+```
+
+#### ข้อควรระวัง: tool call ที่ไม่ถูกต้องถูกตอบซ้ำ 2 ครั้ง
+
+ทดสอบด้วย mock model (`MockLanguageModelV4` จาก `ai/test`) ให้โมเดลขอ 3 รายการใน step เดียว:
+`readFile({ filePath: 'package.json' })` (ถูกต้อง), `readFile({})` (input ผิด schema) และ `deleteFile({})` (ไม่มีเครื่องมือนี้)
+
+ผลที่พบ:
+
+- `result.toolCalls` คืนครบทั้ง 3 รายการ แต่ 2 รายการหลังมี `invalid: true` และ `error` แนบมา
+  (`AI_InvalidToolInputError` และ `AI_NoSuchToolError`)
+- **SDK ตอบ tool call ที่ไม่ถูกต้องให้เองแล้ว**: stream มี part `tool-error` และ `result.responseMessages`
+  (ที่ push ไปแล้วในบรรทัด 80) มี message `role: 'tool'` ที่มี `error-text` ของ 2 รายการนั้นอยู่แล้ว
+- แต่บรรทัด 82–96 ไม่ได้กรอง `invalid` ออก จึงรันทั้ง 3 รายการอีกรอบ:
+
+```ts
+{ role: 'assistant', content: [text, tool-call c1, tool-call c2, tool-call c3] }   // บรรทัด 80
+{ role: 'tool', content: [tool-result c2, tool-result c3] }                       // บรรทัด 80 (SDK สร้างให้)
+{ role: 'tool', content: [tool-result c1, tool-result c2, tool-result c3] }       // บรรทัด 96 (ซ้ำ c2, c3)
+```
+
+ผลกระทบ:
+
+1. **ผลลัพธ์ซ้ำ** ของ `toolCallId` เดียวกัน 2 ครั้ง provider บางรายอาจปฏิเสธ request นี้ (ยังไม่ได้ทดสอบกับ provider จริง)
+2. **`execute` ถูกเรียกด้วย input ที่ไม่ผ่าน schema** `readFile` ได้ `{}` แล้วพังด้วย
+   `TypeError: The "paths[1]" argument must be of type string` ซึ่งอ่านเข้าใจยากกว่า error จาก SDK
+   ถ้าเครื่องมือเขียนไฟล์หรือลบข้อมูล การรันด้วย input ที่ไม่ผ่านการตรวจเป็นเรื่องอันตราย
+
+กรณีปกติ (input ถูกต้องทั้งหมด) ไม่เกิดปัญหานี้ แต่โมเดล local ขนาดเล็กส่ง input ผิดได้บ่อยกว่า
+วิธีแก้คือกรองที่บรรทัด 82 ให้เหลือเฉพาะรายการที่ถูกต้อง เช่น `toolCalls.filter((call) => !call.invalid)`
+(แต่ต้องยังไม่ `return` ถ้ามีแค่ invalid เพราะโมเดลต้องได้เห็น error ใน step ถัดไป)
+**ยังไม่ได้แก้ในโค้ด**
+
 ### เปรียบเทียบ
 
 | | `ToolLoopAgent` | while-loop เอง |
@@ -626,3 +734,14 @@ OPENROUTER_API_KEY=sk-or-...
 - **โมเดลต้องรองรับ tool calling** เพราะ Agent นี้ทำงานด้วยการเรียกเครื่องมือ โมเดลที่ไม่รองรับจะตอบได้แต่ใช้เครื่องมือไม่ได้
 - อีกทางเลือกคือ package `@openrouter/ai-sdk-provider` ที่ OpenRouter ทำเอง รองรับตัวเลือกเฉพาะของ OpenRouter ได้ครบกว่า
   แต่ต้องลง dependency เพิ่ม (ยังไม่ได้ตรวจว่าเวอร์ชันไหนเข้ากับ `ai` v7) สำหรับใช้งานพื้นฐาน `createOpenAICompatible` ก็พอ
+
+### 8. Tool call จะทำงานเมื่อไหร่?
+
+โมเดลเป็นผู้ตัดสินใจ "ขอ" เรียกเครื่องมือ แต่โค้ดของเราเป็นผู้ "รัน" และสองอย่างนี้เกิดคนละเวลากัน:
+
+- **`ToolLoopAgent` (`index.ts`)**: tool มี `execute` SDK จึงรันให้เองภายในลูปของมัน
+- **`manual.ts`**: tool ไม่มี `execute` SDK จึงแค่ส่ง part `tool-call` มาให้ (บรรทัด `[tool] ...` บนจอ = แค่ขอ ยังไม่รัน)
+  การรันจริงเกิดที่บรรทัด 85–94 **หลัง stream ของ step นั้นจบแล้ว** จากนั้นผลลัพธ์ถูกส่งกลับให้โมเดลใน step ถัดไป
+
+รายละเอียดทีละบรรทัด และข้อควรระวังเรื่อง tool call ที่ไม่ถูกต้อง อยู่ในหัวข้อ
+[แบบที่ 2: เขียน while-loop เอง](#แบบที่-2-เขียน-while-loop-เอง-srcmanualts)
