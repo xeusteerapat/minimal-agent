@@ -47,6 +47,23 @@ versus 6 of 6 with thinking off). Remove the middleware in `src/model.ts` to tur
 
 Variables can also be passed inline: `PROVIDER=openai OPENAI_API_KEY=sk-... pnpm start`.
 
+## Use it in another project
+
+`pnpm build` compiles the terminal UI (`src/tui.tsx`) into one executable, `dist/minimal-agent`, with
+[Bun](https://bun.sh) (`bun build --compile`). It needs Bun installed to build, but nothing (no Node,
+no `node_modules`) to run. The binary only runs on the OS and CPU it was built on.
+
+Run it from the other project's folder, so `readFile` reads that project's files:
+
+```sh
+cd ~/code/other-project
+~/path/to/minimal-agent/dist/minimal-agent
+```
+
+Settings come from the shell or from a `.env` in **the folder you run it from**, not from this repo's `.env`.
+Shell variables win over `.env`. To use a key without adding it to the other project, pass it inline:
+`PROVIDER=openrouter OPENROUTER_API_KEY=sk-or-... ~/path/to/minimal-agent/dist/minimal-agent`.
+
 ## Tools
 
 - `getCurrentTime`: returns the current time.
